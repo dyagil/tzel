@@ -16,8 +16,13 @@ let _twilio, _openai;
 const twilioClient = () => _twilio || (_twilio = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN));
 const openai = () => {
   if (!_openai) {
-    // Clean the key — remove any accidental newlines or extra content
-    const rawKey = (process.env.OPENAI_API_KEY || '').split('\n')[0].trim();
+    // Extract just the sk-... part from whatever is in the env var
+    let rawKey = process.env.OPENAI_API_KEY || '';
+    // If it contains "OPENAI_API_KEY=" prefix, extract after it
+    if (rawKey.includes('=')) rawKey = rawKey.split('=').slice(1).join('=');
+    // Take only first line, trim whitespace
+    rawKey = rawKey.split('\n')[0].split('\r')[0].trim();
+    console.log('[DEBUG] API key starts with:', rawKey.substring(0, 10));
     _openai = new OpenAI({ apiKey: rawKey });
   }
   return _openai;
