@@ -230,16 +230,24 @@ app.post('/voice/status', async (req, res) => {
 
 // ── Outbound caller ───────────────────────────────────────────
 async function callUser(user) {
+  const fromNum = PHONE();
+  const toNum = user.phone;
+  const webhookUrl = `${BASE()}/voice/outbound?userId=${user.id}`;
+  console.log(`📞 Dialing ${user.name}: from=${fromNum} to=${toNum} url=${webhookUrl}`);
   try {
     const call = await twilioClient().calls.create({
-      to: user.phone,
-      from: PHONE(),
-      url: `${BASE()}/voice/outbound?userId=${user.id}`,
+      to: toNum,
+      from: fromNum,
+      url: webhookUrl,
       statusCallback: `${BASE()}/voice/status`,
       statusCallbackEvent: ['completed']
     });
-    console.log(`📞 Calling ${user.name}: ${call.sid}`);
-  } catch(e) { console.error(`❌ Call failed for ${user.name}:`, e.message); }
+    console.log(`✅ Call SID: ${call.sid}`);
+    return call.sid;
+  } catch(e) {
+    console.error(`❌ Call failed: ${e.message}`);
+    throw e;
+  }
 }
 
 app.get('/call/:userId', async (req, res) => {
