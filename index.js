@@ -219,6 +219,8 @@ async function callUser(user) {
 }
 
 app.get('/call/:userId', async (req, res) => {
+  const token = req.query.token || req.headers['x-call-token'];
+  if (token !== (process.env.CALL_TOKEN || 'tzel2026')) return res.status(401).json({ error: 'Unauthorized' });
   const user = loadUser(req.params.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
   await prewarmOpening(user);
