@@ -223,9 +223,14 @@ app.get('/call/:userId', async (req, res) => {
   if (token !== (process.env.CALL_TOKEN || 'tzel2026')) return res.status(401).json({ error: 'Unauthorized' });
   const user = loadUser(req.params.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
-  await prewarmOpening(user);
-  await callUser(user);
-  res.json({ ok: true, message: `Calling ${user.name}...` });
+  try {
+    await prewarmOpening(user);
+    await callUser(user);
+    res.json({ ok: true, message: `Calling ${user.name}...` });
+  } catch(e) {
+    console.error('Call error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.get('/', (req, res) => res.json({ status: '🌿 צל running', users: getAllUsers().map(u=>u.name) }));
