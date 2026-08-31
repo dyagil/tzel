@@ -11,8 +11,10 @@ const app = express();
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
-const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Lazy clients — init only when first used (env vars guaranteed ready)
+let _twilio, _openai;
+const twilioClient = () => _twilio || (_twilio = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN));
+const openai = () => _openai || (_openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY }));
 const BASE = () => process.env.BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
 const VOICE = { language: 'he-IL', voice: 'Google.he-IL-Wavenet-D' };
 
@@ -55,7 +57,7 @@ const activeCalls = {};
 const pendingOpenings = {};
 
 async function prewarmOpening(user) {
-  const r = await openai.chat.completions.create({
+  const r = await openai().chat.completions.create({
     model: 'gpt-4o',
     messages: [
       { role: 'system', content: buildSystemPrompt(user) },
@@ -82,7 +84,7 @@ async function transcribeRecording(recordingUrl) {
           try {
             const buf = Buffer.concat(chunks);
             const file = new File([buf], 'audio.mp3', { type: 'audio/mpeg' });
-            const t = await openai.audio.transcriptions.create({ file, model: 'whisper-1', language: 'he' });
+            const t = await openai().audio.transcriptions.create({ file, model: 'whisper-1', language: 'he' });
             resolve(t.text);
           } catch(e) { reject(e); }
         });
@@ -97,7 +99,7 @@ async function transcribeRecording(recordingUrl) {
 async function getReply(user, callSid, userSpeech) {
   const call = activeCalls[callSid] || { userId: user.id, messages: [] };
   call.messages.push({ role: 'user', content: userSpeech });
-  const r = await openai.chat.completions.create({
+  const r = await openai().chat.completions.create({
     model: 'gpt-4o',
     messages: [{ role: 'system', content: buildSystemPrompt(user) }, ...call.messages],
     max_tokens: 80
@@ -180,7 +182,7 @@ app.post('/voice/status', async (req, res) => {
     const user = loadUser(userId);
     if (user && messages.length > 1) {
       try {
-        const r = await openai.chat.completions.create({
+        const r = await openai().chat.completions.create({
           model: 'gpt-4o',
           messages: [
             { role: 'system', content: 'סכם בעברית את השיחה הבאה במשפט-שניים. הדגש מצב רוח, נושאים חשובים ומה לזכור לשיחה הבאה.' },
@@ -205,7 +207,7 @@ app.post('/voice/status', async (req, res) => {
 // ── Outbound caller ───────────────────────────────────────────
 async function callUser(user) {
   try {
-    const call = await twilioClient.calls.create({
+    const call = await twilioClient().calls.create({
       to: user.phone,
       from: process.env.TWILIO_PHONE_NUMBER,
       url: `${BASE()}/voice/outbound?userId=${user.id}`,

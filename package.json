@@ -1,10 +1,11 @@
 {
   "name": "companion-ai",
   "version": "1.0.0",
-  "description": "> עוזר AI קולי לקשישים בודדים — מתקשר יזום, זוכר, מדבר עברית.",
+  "description": "> \u05e2\u05d5\u05d6\u05e8 AI \u05e7\u05d5\u05dc\u05d9 \u05dc\u05e7\u05e9\u05d9\u05e9\u05d9\u05dd \u05d1\u05d5\u05d3\u05d3\u05d9\u05dd \u2014 \u05de\u05ea\u05e7\u05e9\u05e8 \u05d9\u05d6\u05d5\u05dd, \u05d6\u05d5\u05db\u05e8, \u05de\u05d3\u05d1\u05e8 \u05e2\u05d1\u05e8\u05d9\u05ea.",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node index.js"
   },
   "keywords": [],
   "author": "",
@@ -16,5 +17,8 @@
     "openai": "^7.8.0",
     "twilio": "^6.1.0",
     "ws": "^8.21.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
