@@ -28,6 +28,12 @@ const openai = () => {
   return _openai;
 };
 const BASE = () => process.env.BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
+// Clean env vars that might have extra content
+const PHONE = () => {
+  let p = (process.env.TWILIO_PHONE_NUMBER || '+97233768596').split('\n')[0].trim();
+  if (p.includes('=')) p = p.split('=').pop().trim();
+  return p;
+};
 const VOICE = { language: 'he-IL', voice: 'Google.he-IL-Wavenet-D' };
 
 // ── User DB ───────────────────────────────────────────────────
@@ -221,7 +227,7 @@ async function callUser(user) {
   try {
     const call = await twilioClient().calls.create({
       to: user.phone,
-      from: process.env.TWILIO_PHONE_NUMBER,
+      from: PHONE(),
       url: `${BASE()}/voice/outbound?userId=${user.id}`,
       statusCallback: `${BASE()}/voice/status`,
       statusCallbackEvent: ['completed']
