@@ -14,7 +14,14 @@ app.use(express.json());
 // Lazy clients — init only when first used (env vars guaranteed ready)
 let _twilio, _openai;
 const twilioClient = () => _twilio || (_twilio = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN));
-const openai = () => _openai || (_openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY }));
+const openai = () => {
+  if (!_openai) {
+    // Clean the key — remove any accidental newlines or extra content
+    const rawKey = (process.env.OPENAI_API_KEY || '').split('\n')[0].trim();
+    _openai = new OpenAI({ apiKey: rawKey });
+  }
+  return _openai;
+};
 const BASE = () => process.env.BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
 const VOICE = { language: 'he-IL', voice: 'Google.he-IL-Wavenet-D' };
 
