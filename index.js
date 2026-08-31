@@ -30,8 +30,14 @@ const openai = () => {
 const BASE = () => process.env.BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
 // Clean env vars that might have extra content
 const PHONE = () => {
-  let p = (process.env.TWILIO_PHONE_NUMBER || '+97233768596').split('\n')[0].trim();
-  if (p.includes('=')) p = p.split('=').pop().trim();
+  let p = process.env.TWILIO_PHONE_NUMBER || '';
+  // Strip "KEY=VALUE" format if accidentally stored with key name
+  if (p.includes('=')) p = p.split('=').pop();
+  // Take first line only
+  p = p.split('\n')[0].split('\r')[0].trim();
+  // Fallback to known number if empty or suspicious
+  if (!p.startsWith('+972')) p = '+97233768596';
+  console.log('[PHONE]', p);
   return p;
 };
 const VOICE = { language: 'he-IL', voice: 'Google.he-IL-Wavenet-D' };
