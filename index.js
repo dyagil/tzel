@@ -186,30 +186,70 @@ app.post('/voice/recording', async (req, res) => {
     return res.type('text/xml').send(twiml.toString());
   }
 
-  try {
-    const speech = await transcribeRecording(recordingUrl);
-    console.log(`💬 ${user.name}: ${speech}`);
-
-    if (!speech || speech.trim().length < 2) {
-      const twiml = new twilio.twiml.VoiceResponse();
-      twiml.say({ language: 'he-IL', voice: 'Google.he-IL-Wavenet-D' }, 'לא הצלחתי לשמוע. תוכל לחזור?');
-      twiml.record({
-        action: `${BASE()}/voice/recording?callSid=${callSid}&userId=${userId}`,
-        maxLength: 40, timeout: 5, playBeep: false, trim: 'trim-silence'
-      });
-      return res.type('text/xml').send(twiml.toString());
+  // Respond quickly with "thinking" pause while we process
+  // Use <Pause> + redirect to avoid Twilio 10s timeout
+  const thinkToken = `think_${callSid}_${Date.now()}`;
+  
+  // Process in background
+  (async () => {
+    try {
+      const speech = await transcribeRecording(recordingUrl);
+      console.log(`💬 ${user.name}: ${speech}`);
+      let replyTwiml;
+      if (!speech || speech.trim().length < 2) {
+        const t = new twilio.twiml.VoiceResponse();
+        const url = await ttsToUrl('לא הצלחתי לשמוע. תוכל לחזור?', callSid);
+        if (url) t.play(url); else t.say({ language: 'he-IL', voice: 'Google.he-IL-Wavenet-D' }, 'לא הצלחתי לשמוע. תוכל לחזור?');
+        t.record({ action: `${BASE()}/voice/recording?callSid=${callSid}&userId=${userId}`, maxLength: 40, timeout: 5, playBeep: false, trim: 'trim-silence' });
+        replyTwiml = t.toString();
+      } else {
+        const reply = await getReply(user, callSid, speech);
+        console.log(`🤖 צל: ${reply}`);
+        replyTwiml = await twimlSayAndRecord(userId, callSid, reply);
+      }
+      pendingTwiml[thinkToken] = replyTwiml;
+    } catch(e) {
+      console.error('Recording error:', e.message);
+      const t = new twilio.twiml.VoiceResponse();
+      const url = await ttsToUrl('רגע, אני כאן. ספר לי שוב.', callSid).catch(()=>null);
+      if (url) t.play(url); else t.say({ language: 'he-IL', voice: 'Google.he-IL-Wavenet-D' }, 'רגע, אני כאן. ספר לי שוב.');
+      t.record({ action: `${BASE()}/voice/recording?callSid=${callSid}&userId=${userId}`, maxLength: 40, timeout: 5, playBeep: false, trim: 'trim-silence' });
+      pendingTwiml[thinkToken] = t.toString();
     }
+  })();
 
-    const reply = await getReply(user, callSid, speech);
-    console.log(`🤖 צל: ${reply}`);
-    res.type('text/xml').send(await twimlSayAndRecord(userId, callSid, reply));
-  } catch(e) {
-    console.error('Recording error:', e.message);
-    const twiml = new twilio.twiml.VoiceResponse();
-    twiml.say({ language: 'he-IL', voice: 'Google.he-IL-Wavenet-D' }, 'סליחה, הייתה תקלה קטנה. נדבר שוב בקרוב.');
-    twiml.hangup();
-    res.type('text/xml').send(twiml.toString());
+  // Respond immediately with redirect to poll for result
+  const twiml = new twilio.twiml.VoiceResponse();
+  twiml.pause({ length: 2 });
+  twiml.redirect(`${BASE()}/voice/poll?token=${thinkToken}&callSid=${callSid}&userId=${userId}&attempt=0`);
+  res.type('text/xml').send(twiml.toString());
+});
+
+// Poll endpoint — waits for background processing
+const pendingTwiml = {};
+app.post('/voice/poll', async (req, res) => {
+  const { token, callSid, userId } = req.query;
+  const attempt = parseInt(req.query.attempt || '0');
+  
+  if (pendingTwiml[token]) {
+    const twiml = pendingTwiml[token];
+    delete pendingTwiml[token];
+    return res.type('text/xml').send(twiml);
   }
+  
+  if (attempt >= 4) {
+    // Timeout — just record again
+    const t = new twilio.twiml.VoiceResponse();
+    t.say({ language: 'he-IL', voice: 'Google.he-IL-Wavenet-D' }, 'רגע...');
+    t.record({ action: `${BASE()}/voice/recording?callSid=${callSid}&userId=${userId}`, maxLength: 40, timeout: 5, playBeep: false, trim: 'trim-silence' });
+    return res.type('text/xml').send(t.toString());
+  }
+  
+  // Wait 2 more seconds and try again
+  const t = new twilio.twiml.VoiceResponse();
+  t.pause({ length: 2 });
+  t.redirect(`${BASE()}/voice/poll?token=${token}&callSid=${callSid}&userId=${userId}&attempt=${attempt+1}`);
+  res.type('text/xml').send(t.toString());
 });
 
 app.post('/voice/status', async (req, res) => {
