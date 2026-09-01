@@ -41,6 +41,32 @@ const PHONE = () => {
   return p;
 };
 const VOICE = { language: 'he-IL', voice: 'Google.he-IL-Wavenet-D' };
+const ELEVENLABS_VOICE_ID = 'XrExE9yKIg1WjnnlVkGX'; // Matilda — warm, natural
+const ELEVENLABS_KEY = () => (process.env.ELEVENLABS_API_KEY || '').trim() || '387f445c7db0a79f05deba4bb8e5db2a';
+
+async function ttsToUrl(text, callSid) {
+  try {
+    const resp = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`, {
+      method: 'POST',
+      headers: { 'xi-api-key': ELEVENLABS_KEY(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text,
+        model_id: 'eleven_multilingual_v2',
+        voice_settings: { stability: 0.5, similarity_boost: 0.75 }
+      })
+    });
+    if (!resp.ok) throw new Error('ElevenLabs HTTP ' + resp.status);
+    const buf = Buffer.from(await resp.arrayBuffer());
+    const filename = `audio_${callSid}_${Date.now()}.mp3`;
+    const audioPath = path.join(__dirname, 'audio', filename);
+    if (!fs.existsSync(path.join(__dirname, 'audio'))) fs.mkdirSync(path.join(__dirname, 'audio'));
+    fs.writeFileSync(audioPath, buf);
+    return `${BASE()}/audio/${filename}`;
+  } catch(e) {
+    console.error('ElevenLabs error:', e.message);
+    return null; // fallback to Twilio TTS
+  }
+}
 
 // ── User DB ───────────────────────────────────────────────────
 function loadUser(userId) {
@@ -135,9 +161,14 @@ async function getReply(user, callSid, userSpeech) {
 }
 
 // ── TwiML builder ─────────────────────────────────────────────
-function twimlSayAndRecord(userId, callSid, text) {
+async function twimlSayAndRecord(userId, callSid, text) {
   const twiml = new twilio.twiml.VoiceResponse();
-  twiml.say(VOICE, text);
+  const audioUrl = await ttsToUrl(text, callSid);
+  if (audioUrl) {
+    twiml.play(audioUrl);
+  } else {
+    twiml.say(VOICE, text); // fallback
+  }
   twiml.record({
     action: `${BASE()}/voice/recording?callSid=${callSid}&userId=${userId}`,
     maxLength: 40,
@@ -158,7 +189,7 @@ app.post('/voice/outbound', (req, res) => {
   delete pendingOpenings[userId];
   activeCalls[callSid].messages.push({ role: 'assistant', content: opening });
   console.log(`🎙️ Call connected for ${user.name}: ${opening}`);
-  res.type('text/xml').send(twimlSayAndRecord(userId, callSid, opening));
+  res.type('text/xml').send(await twimlSayAndRecord(userId, callSid, opening));
 });
 
 app.post('/voice/recording', async (req, res) => {
@@ -189,7 +220,7 @@ app.post('/voice/recording', async (req, res) => {
 
     const reply = await getReply(user, callSid, speech);
     console.log(`🤖 צל: ${reply}`);
-    res.type('text/xml').send(twimlSayAndRecord(userId, callSid, reply));
+    res.type('text/xml').send(await twimlSayAndRecord(userId, callSid, reply));
   } catch(e) {
     console.error('Recording error:', e.message);
     const twiml = new twilio.twiml.VoiceResponse();
@@ -265,6 +296,7 @@ app.get('/call/:userId', async (req, res) => {
   }
 });
 
+app.use('/audio', express.static(path.join(__dirname, 'audio')));
 app.get('/', (req, res) => res.json({ status: '🌿 צל running', users: getAllUsers().map(u=>u.name) }));
 
 app.get('/debug-env', (req, res) => {
