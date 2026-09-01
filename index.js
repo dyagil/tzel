@@ -180,7 +180,7 @@ async function twimlSayAndRecord(userId, callSid, text) {
 }
 
 // ── Webhooks ──────────────────────────────────────────────────
-app.post('/voice/outbound', (req, res) => {
+app.post('/voice/outbound', async (req, res) => {
   const { userId } = req.query;
   const callSid = req.body.CallSid;
   const user = loadUser(userId) || { id: userId, name: 'חבר', memory: [], medications: [] };
