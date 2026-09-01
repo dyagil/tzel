@@ -156,7 +156,11 @@ async function twimlSayAndRecord(userId, callSid, text) {
   }
   twiml.record({
     action: `${BASE()}/voice/recording?callSid=${callSid}&userId=${userId}`,
-    maxLength: 40, timeout: 5, playBeep: false, trim: 'trim-silence'
+    maxLength: 15,
+    timeout: 3,
+    playBeep: false,
+    trim: 'trim-silence',
+    finishOnKey: ''
   });
   return twiml.toString();
 }
