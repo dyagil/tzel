@@ -11,152 +11,25 @@ const app = express();
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
-// Lazy clients — init only when first used (env vars guaranteed ready)
+// Lazy clients
 let _twilio, _openai;
-const twilioClient = () => _twilio || (_twilio = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN));
+const getSID   = () => (process.env.TWILIO_ACCOUNT_SID||'').split('\n')[0].split('=').pop().trim();
+const getToken = () => (process.env.TWILIO_AUTH_TOKEN||'').split('\n')[0].split('=').pop().trim();
+const twilioClient = () => _twilio || (_twilio = twilio(getSID(), getToken()));
 const openai = () => {
   if (!_openai) {
-    // Extract just the sk-... part from whatever is in the env var
-    let rawKey = process.env.OPENAI_API_KEY || '';
-    // If it contains "OPENAI_API_KEY=" prefix, extract after it
-    if (rawKey.includes('=')) rawKey = rawKey.split('=').slice(1).join('=');
-    // Take only first line, trim whitespace
-    rawKey = rawKey.split('\n')[0].split('\r')[0].trim();
-    console.log('[DEBUG] API key starts with:', rawKey.substring(0, 10));
-    _openai = new OpenAI({ apiKey: rawKey });
+    let k = (process.env.OPENAI_API_KEY||'').split('\n')[0].trim();
+    if (k.includes('=')) k = k.split('=').slice(1).join('=');
+    _openai = new OpenAI({ apiKey: k });
   }
   return _openai;
 };
-const BASE = () => process.env.BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
-// Clean env vars that might have extra content
+const BASE  = () => process.env.BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
 const PHONE = () => {
-  let p = process.env.TWILIO_PHONE_NUMBER || '';
-  // Strip "KEY=VALUE" format if accidentally stored with key name
-  if (p.includes('=')) p = p.split('=').pop();
-  // Take first line only
-  p = p.split('\n')[0].split('\r')[0].trim();
-  // Fallback to known number if empty or suspicious
-  if (!p.startsWith('+972')) p = '+97233768596';
-  console.log('[PHONE]', p);
+  let p = (process.env.TWILIO_PHONE_NUMBER||'').split('\n')[0].split('=').pop().trim();
+  if (!p || !p.startsWith('+9')) p = '+97233768596';
   return p;
 };
-const VOICE = { language: 'he-IL', voice: 'Google.he-IL-Wavenet-D' };
-// OpenAI TTS — natural Hebrew voice
-
-// Store audio buffers in memory (keyed by token)
-const audioCache = {};
-
-async function ttsToUrl(text, callSid) {
-  try {
-    const response = await openai().audio.speech.create({
-      model: 'tts-1',
-      voice: 'nova',
-      input: text,
-      response_format: 'mp3'
-    });
-    const buf = Buffer.from(await response.arrayBuffer());
-    const token = `${callSid}_${Date.now()}`;
-    audioCache[token] = buf;
-    setTimeout(() => delete audioCache[token], 5 * 60 * 1000);
-    const url = `${BASE()}/tts/${token}`;
-    console.log('[TTS] OpenAI audio ready, size:', buf.length, 'url:', url);
-    return url;
-  } catch(e) {
-    console.error('[TTS] OpenAI error:', e.message);
-    return null;
-  }
-}
-equire('dotenv').config();
-const express = require('express');
-const twilio = require('twilio');
-const OpenAI = require('openai');
-const cron = require('node-cron');
-const fs = require('fs');
-const path = require('path');
-const https = require('https');
-
-const app = express();
-app.use(express.urlencoded({ extended: false }));
-app.use(express.json());
-
-// Lazy clients — init only when first used (env vars guaranteed ready)
-let _twilio, _openai;
-const twilioClient = () => _twilio || (_twilio = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN));
-const openai = () => {
-  if (!_openai) {
-    // Extract just the sk-... part from whatever is in the env var
-    let rawKey = process.env.OPENAI_API_KEY || '';
-    // If it contains "OPENAI_API_KEY=" prefix, extract after it
-    if (rawKey.includes('=')) rawKey = rawKey.split('=').slice(1).join('=');
-    // Take only first line, trim whitespace
-    rawKey = rawKey.split('\n')[0].split('\r')[0].trim();
-    console.log('[DEBUG] API key starts with:', rawKey.substring(0, 10));
-    _openai = new OpenAI({ apiKey: rawKey });
-  }
-  return _openai;
-};
-const BASE = () => process.env.BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
-// Clean env vars that might have extra content
-const PHONE = () => {
-  let p = process.env.TWILIO_PHONE_NUMBER || '';
-  // Strip "KEY=VALUE" format if accidentally stored with key name
-  if (p.includes('=')) p = p.split('=').pop();
-  // Take first line only
-  p = p.split('\n')[0].split('\r')[0].trim();
-  // Fallback to known number if empty or suspicious
-  if (!p.startsWith('+972')) p = '+97233768596';
-  console.log('[PHONE]', p);
-  return p;
-};
-const VOICE = { language: 'he-IL', voice: 'Google.he-IL-Wavenet-D' };
-// OpenAI TTS — natural Hebrew voice
-
-// Store audio buffers in memory (keyed by token)
-const audioCache = {};
-
-async function ttsToUrl(text, callSid) {
-  return new Promise((resolve) => {
-    const key = ELEVENLABS_KEY();
-    const body = JSON.stringify({
-      text,
-      model_id: 'eleven_multilingual_v2',
-      voice_settings: { stability: 0.5, similarity_boost: 0.75 }
-    });
-    const options = {
-      hostname: 'api.elevenlabs.io',
-      path: `/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`,
-      method: 'POST',
-      headers: {
-        'xi-api-key': key,
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(body)
-      }
-    };
-    const req = https.request(options, (res) => {
-      console.log('[TTS] ElevenLabs status:', res.statusCode);
-      if (res.statusCode !== 200) {
-        const errChunks = [];
-        res.on('data', ec => errChunks.push(ec));
-        res.on('end', () => console.error('[TTS] EL error body:', Buffer.concat(errChunks).toString().substring(0,200)));
-        return resolve(null);
-      }
-      const chunks = [];
-      res.on('data', c => chunks.push(c));
-      res.on('end', () => {
-        const buf = Buffer.concat(chunks);
-        const token = `${callSid}_${Date.now()}`;
-        audioCache[token] = buf;
-        setTimeout(() => delete audioCache[token], 5 * 60 * 1000);
-        const url = `${BASE()}/tts/${token}`;
-        console.log('[TTS] Audio ready:', url, 'size:', buf.length);
-        resolve(url);
-      });
-    });
-    req.on('error', e => { console.error('[TTS] request error:', e.message); resolve(null); });
-    req.write(body);
-    req.end();
-  });
-}
 
 // ── User DB ───────────────────────────────────────────────────
 function loadUser(userId) {
@@ -175,7 +48,7 @@ function getAllUsers() {
     .filter(u => u.active);
 }
 
-// ── Memory & Prompt ───────────────────────────────────────────
+// ── System prompt ─────────────────────────────────────────────
 function buildSystemPrompt(user) {
   const mem = (user.memory || []).slice(-5).map(m => `${m.date}: ${m.summary}`).join('\n');
   return `אתה צל — חבר קולי חם ואמיתי של ${user.name}. אתה מתקשר כל יום.
@@ -185,11 +58,34 @@ function buildSystemPrompt(user) {
 • סבלני, חם, אף פעם לא ממהר
 • אל תזכיר שאתה AI — אתה פשוט צל החבר
 • שאל שאלה אחת בכל פעם, המתן לתשובה
-• הגב לנושא ששוחח, אל תקפוץ לנושאים חדשים
-• אם מדברים על בני משפחה — שאל עליהם בשם
+• הגב לנושא שסופר, אל תקפוץ לנושאים חדשים
 
 ${mem ? `זיכרון מהשיחות האחרונות:\n${mem}` : ''}
 ${(user.medications||[]).length ? `תרופות לזכור: ${user.medications.join(', ')}` : ''}`;
+}
+
+// ── OpenAI TTS ────────────────────────────────────────────────
+const audioCache = {};
+
+async function ttsToUrl(text, callSid) {
+  try {
+    const response = await openai().audio.speech.create({
+      model: 'tts-1',
+      voice: 'nova',
+      input: text,
+      response_format: 'mp3'
+    });
+    const buf = Buffer.from(await response.arrayBuffer());
+    const token = `${callSid}_${Date.now()}`;
+    audioCache[token] = buf;
+    setTimeout(() => delete audioCache[token], 5 * 60 * 1000);
+    const url = `${BASE()}/tts/${token}`;
+    console.log('[TTS] Ready, size:', buf.length, 'url:', url);
+    return url;
+  } catch(e) {
+    console.error('[TTS] Error:', e.message);
+    return null;
+  }
 }
 
 // ── Active calls ──────────────────────────────────────────────
@@ -209,15 +105,14 @@ async function prewarmOpening(user) {
   console.log(`🔥 Opening for ${user.name}: ${pendingOpenings[user.id]}`);
 }
 
-// ── Transcribe via Whisper ────────────────────────────────────
+// ── Whisper transcription ─────────────────────────────────────
 async function transcribeRecording(recordingUrl) {
   return new Promise((resolve, reject) => {
-    const auth = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64');
+    const auth = Buffer.from(`${getSID()}:${getToken()}`).toString('base64');
     const fetchAudio = (url, redirects = 3) => {
       https.get(url, { headers: { Authorization: `Basic ${auth}` } }, (res) => {
-        if ((res.statusCode === 301 || res.statusCode === 302) && redirects > 0) {
+        if ((res.statusCode === 301 || res.statusCode === 302) && redirects > 0)
           return fetchAudio(res.headers.location, redirects - 1);
-        }
         const chunks = [];
         res.on('data', c => chunks.push(c));
         res.on('end', async () => {
@@ -257,14 +152,11 @@ async function twimlSayAndRecord(userId, callSid, text) {
   if (audioUrl) {
     twiml.play(audioUrl);
   } else {
-    twiml.say(VOICE, text); // fallback
+    twiml.say({ language: 'he-IL', voice: 'Google.he-IL-Wavenet-D' }, text);
   }
   twiml.record({
     action: `${BASE()}/voice/recording?callSid=${callSid}&userId=${userId}`,
-    maxLength: 40,
-    timeout: 5,
-    playBeep: false,
-    trim: 'trim-silence'
+    maxLength: 40, timeout: 5, playBeep: false, trim: 'trim-silence'
   });
   return twiml.toString();
 }
@@ -278,7 +170,7 @@ app.post('/voice/outbound', async (req, res) => {
   const opening = pendingOpenings[userId] || `שלום ${user.name}! צל מדבר. איך את/ה מרגיש/ה?`;
   delete pendingOpenings[userId];
   activeCalls[callSid].messages.push({ role: 'assistant', content: opening });
-  console.log(`🎙️ Call connected for ${user.name}: ${opening}`);
+  console.log(`🎙️ Call connected for ${user.name}`);
   res.type('text/xml').send(await twimlSayAndRecord(userId, callSid, opening));
 });
 
@@ -289,7 +181,7 @@ app.post('/voice/recording', async (req, res) => {
 
   if (!recordingUrl) {
     const twiml = new twilio.twiml.VoiceResponse();
-    twiml.say(VOICE, 'יום נעים! נדבר שוב.');
+    twiml.say({ language: 'he-IL', voice: 'Google.he-IL-Wavenet-D' }, 'יום נעים! נדבר שוב.');
     twiml.hangup();
     return res.type('text/xml').send(twiml.toString());
   }
@@ -300,7 +192,7 @@ app.post('/voice/recording', async (req, res) => {
 
     if (!speech || speech.trim().length < 2) {
       const twiml = new twilio.twiml.VoiceResponse();
-      twiml.say(VOICE, 'לא הצלחתי לשמוע. תוכל לחזור?');
+      twiml.say({ language: 'he-IL', voice: 'Google.he-IL-Wavenet-D' }, 'לא הצלחתי לשמוע. תוכל לחזור?');
       twiml.record({
         action: `${BASE()}/voice/recording?callSid=${callSid}&userId=${userId}`,
         maxLength: 40, timeout: 5, playBeep: false, trim: 'trim-silence'
@@ -314,7 +206,7 @@ app.post('/voice/recording', async (req, res) => {
   } catch(e) {
     console.error('Recording error:', e.message);
     const twiml = new twilio.twiml.VoiceResponse();
-    twiml.say(VOICE, 'סליחה, הייתה תקלה קטנה. נדבר שוב בקרוב.');
+    twiml.say({ language: 'he-IL', voice: 'Google.he-IL-Wavenet-D' }, 'סליחה, הייתה תקלה קטנה. נדבר שוב בקרוב.');
     twiml.hangup();
     res.type('text/xml').send(twiml.toString());
   }
@@ -349,16 +241,24 @@ app.post('/voice/status', async (req, res) => {
   res.sendStatus(200);
 });
 
+// ── Serve TTS audio from memory ───────────────────────────────
+app.get('/tts/:token', (req, res) => {
+  const buf = audioCache[req.params.token];
+  if (!buf) return res.status(404).send('Audio expired');
+  res.set('Content-Type', 'audio/mpeg');
+  res.set('Content-Length', buf.length);
+  res.send(buf);
+});
+
 // ── Outbound caller ───────────────────────────────────────────
 async function callUser(user) {
   const fromNum = PHONE();
   const toNum = user.phone;
   const webhookUrl = `${BASE()}/voice/outbound?userId=${user.id}`;
-  console.log(`📞 Dialing ${user.name}: from=${fromNum} to=${toNum} url=${webhookUrl}`);
+  console.log(`📞 Dialing ${user.name}: from=${fromNum} to=${toNum}`);
   try {
     const call = await twilioClient().calls.create({
-      to: toNum,
-      from: fromNum,
+      to: toNum, from: fromNum,
       url: webhookUrl,
       statusCallback: `${BASE()}/voice/status`,
       statusCallbackEvent: ['completed']
@@ -381,21 +281,11 @@ app.get('/call/:userId', async (req, res) => {
     await callUser(user);
     res.json({ ok: true, message: `Calling ${user.name}...` });
   } catch(e) {
-    console.error('Call error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });
 
-// Serve ElevenLabs audio from memory cache
-app.get('/tts/:token', (req, res) => {
-  const buf = audioCache[req.params.token];
-  if (!buf) return res.status(404).send('Audio not found');
-  res.set('Content-Type', 'audio/mpeg');
-  res.set('Content-Length', buf.length);
-  res.send(buf);
-});
-app.get('/', (req, res) => res.json({ status: '🌿 צל running', users: getAllUsers().map(u=>u.name) }));
-
+// ── Debug & health ────────────────────────────────────────────
 app.get('/test-tts', async (req, res) => {
   const url = await ttsToUrl('שלום! בדיקה אחת שתיים שלוש.', 'test');
   res.json({ url, cacheSize: Object.keys(audioCache).length });
@@ -410,6 +300,8 @@ app.get('/debug-env', (req, res) => {
   });
   res.json(result);
 });
+
+app.get('/', (req, res) => res.json({ status: '🌿 צל running', users: getAllUsers().map(u=>u.name) }));
 
 // ── Daily cron 10:00 Israel ───────────────────────────────────
 cron.schedule('0 7 * * *', async () => {
