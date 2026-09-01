@@ -267,6 +267,16 @@ app.get('/call/:userId', async (req, res) => {
 
 app.get('/', (req, res) => res.json({ status: '🌿 צל running', users: getAllUsers().map(u=>u.name) }));
 
+app.get('/debug-env', (req, res) => {
+  const vars = ['TWILIO_ACCOUNT_SID','TWILIO_AUTH_TOKEN','TWILIO_PHONE_NUMBER','OPENAI_API_KEY','BASE_URL','PORT'];
+  const result = {};
+  vars.forEach(k => {
+    const v = process.env[k] || '';
+    result[k] = v ? v.substring(0,8)+'...(len='+v.length+')' : 'MISSING';
+  });
+  res.json(result);
+});
+
 // ── Daily cron 10:00 Israel ───────────────────────────────────
 cron.schedule('0 7 * * *', async () => {
   console.log('⏰ Daily calls...');
