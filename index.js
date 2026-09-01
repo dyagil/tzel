@@ -42,7 +42,7 @@ const PHONE = () => {
 };
 const VOICE = { language: 'he-IL', voice: 'Google.he-IL-Wavenet-D' };
 const ELEVENLABS_VOICE_ID = 'XrExE9yKIg1WjnnlVkGX'; // Matilda — warm, natural
-const ELEVENLABS_KEY = () => (process.env.ELEVENLABS_API_KEY || '').trim() || '387f445c7db0a79f05deba4bb8e5db2a';
+const ELEVENLABS_KEY = () => { const k = (process.env.ELEVENLABS_API_KEY||'').split('\n')[0].trim(); console.log('[EL] key len:', k.length); return k || '387f445c7db0a79f05deba4bb8e5db2a'; };
 
 async function ttsToUrl(text, callSid) {
   try {
@@ -300,7 +300,7 @@ app.use('/audio', express.static(path.join(__dirname, 'audio')));
 app.get('/', (req, res) => res.json({ status: '🌿 צל running', users: getAllUsers().map(u=>u.name) }));
 
 app.get('/debug-env', (req, res) => {
-  const vars = ['TWILIO_ACCOUNT_SID','TWILIO_AUTH_TOKEN','TWILIO_PHONE_NUMBER','OPENAI_API_KEY','BASE_URL','PORT'];
+  const vars = ['TWILIO_ACCOUNT_SID','TWILIO_AUTH_TOKEN','TWILIO_PHONE_NUMBER','OPENAI_API_KEY','BASE_URL','PORT','ELEVENLABS_API_KEY'];
   const result = {};
   vars.forEach(k => {
     const v = process.env[k] || '';
