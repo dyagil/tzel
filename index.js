@@ -48,29 +48,42 @@ const ELEVENLABS_KEY = () => { const k = (process.env.ELEVENLABS_API_KEY||'').sp
 const audioCache = {};
 
 async function ttsToUrl(text, callSid) {
-  try {
-    const resp = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`, {
-      method: 'POST',
-      headers: { 'xi-api-key': ELEVENLABS_KEY(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text,
-        model_id: 'eleven_multilingual_v2',
-        voice_settings: { stability: 0.5, similarity_boost: 0.75 }
-      })
+  return new Promise((resolve) => {
+    const key = ELEVENLABS_KEY();
+    const body = JSON.stringify({
+      text,
+      model_id: 'eleven_multilingual_v2',
+      voice_settings: { stability: 0.5, similarity_boost: 0.75 }
     });
-    if (!resp.ok) { console.error('ElevenLabs HTTP:', resp.status); return null; }
-    const buf = Buffer.from(await resp.arrayBuffer());
-    const token = `${callSid}_${Date.now()}`;
-    audioCache[token] = buf;
-    // Clean up after 5 minutes
-    setTimeout(() => delete audioCache[token], 5 * 60 * 1000);
-    const url = `${BASE()}/tts/${token}`;
-    console.log('[TTS] Generated audio, url:', url, 'size:', buf.length);
-    return url;
-  } catch(e) {
-    console.error('ElevenLabs error:', e.message);
-    return null;
-  }
+    const options = {
+      hostname: 'api.elevenlabs.io',
+      path: `/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`,
+      method: 'POST',
+      headers: {
+        'xi-api-key': key,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body)
+      }
+    };
+    const req = https.request(options, (res) => {
+      console.log('[TTS] ElevenLabs status:', res.statusCode);
+      if (res.statusCode !== 200) { res.resume(); return resolve(null); }
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => {
+        const buf = Buffer.concat(chunks);
+        const token = `${callSid}_${Date.now()}`;
+        audioCache[token] = buf;
+        setTimeout(() => delete audioCache[token], 5 * 60 * 1000);
+        const url = `${BASE()}/tts/${token}`;
+        console.log('[TTS] Audio ready:', url, 'size:', buf.length);
+        resolve(url);
+      });
+    });
+    req.on('error', e => { console.error('[TTS] request error:', e.message); resolve(null); });
+    req.write(body);
+    req.end();
+  });
 }
 
 // ── User DB ───────────────────────────────────────────────────
