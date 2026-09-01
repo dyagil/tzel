@@ -311,6 +311,11 @@ app.get('/tts/:token', (req, res) => {
 });
 app.get('/', (req, res) => res.json({ status: '🌿 צל running', users: getAllUsers().map(u=>u.name) }));
 
+app.get('/test-tts', async (req, res) => {
+  const url = await ttsToUrl('שלום! בדיקה אחת שתיים שלוש.', 'test');
+  res.json({ url, cacheSize: Object.keys(audioCache).length });
+});
+
 app.get('/debug-env', (req, res) => {
   const vars = ['TWILIO_ACCOUNT_SID','TWILIO_AUTH_TOKEN','TWILIO_PHONE_NUMBER','OPENAI_API_KEY','BASE_URL','PORT','ELEVENLABS_API_KEY'];
   const result = {};
