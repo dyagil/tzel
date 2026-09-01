@@ -67,7 +67,12 @@ async function ttsToUrl(text, callSid) {
     };
     const req = https.request(options, (res) => {
       console.log('[TTS] ElevenLabs status:', res.statusCode);
-      if (res.statusCode !== 200) { res.resume(); return resolve(null); }
+      if (res.statusCode !== 200) {
+        const errChunks = [];
+        res.on('data', ec => errChunks.push(ec));
+        res.on('end', () => console.error('[TTS] EL error body:', Buffer.concat(errChunks).toString().substring(0,200)));
+        return resolve(null);
+      }
       const chunks = [];
       res.on('data', c => chunks.push(c));
       res.on('end', () => {
