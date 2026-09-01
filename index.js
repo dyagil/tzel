@@ -210,7 +210,7 @@ async function sendFamilyWhatsApp(user, summary, duration) {
   const today   = new Date().toLocaleDateString('he-IL');
   const msg     = `🌿 סיכום שיחת צל עם ${user.name}\n📅 ${today} | ⏱️ ${minutes} דקות\n\n${summary}`;
 
-  const body = new URLSearchParams({ To: `whatsapp:${user.family.primaryContact}`, From: 'whatsapp:+97233768596', Body: msg });
+  const body = new URLSearchParams({ To: `whatsapp:${user.family.primaryContact}`, From: 'whatsapp:+97233823510', Body: msg });
   const auth = Buffer.from(`${TWILIO_SID}:${TWILIO_TOKEN}`).toString('base64');
   const data = body.toString();
 
