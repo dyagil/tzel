@@ -42,7 +42,7 @@ const PHONE = () => {
 };
 const VOICE = { language: 'he-IL', voice: 'Google.he-IL-Wavenet-D' };
 const ELEVENLABS_VOICE_ID = 'XrExE9yKIg1WjnnlVkGX'; // Matilda — warm, natural
-const ELEVENLABS_KEY = () => { const k = (process.env.ELEVENLABS_API_KEY||'').split('\n')[0].trim(); console.log('[EL] key len:', k.length); return k || '387f445c7db0a79f05deba4bb8e5db2a'; };
+const ELEVENLABS_KEY = () => { let k = (process.env.ELEVENLABS_API_KEY||'').split('\n')[0].split('=').pop().trim(); if(!k||k.length<20) k='387f445c7db0a79f05deba4bb8e5db2a'; console.log('[EL] key len:', k.length, 'prefix:', k.substring(0,8)); return k; };
 
 // Store audio buffers in memory (keyed by token)
 const audioCache = {};
