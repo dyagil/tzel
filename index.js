@@ -44,6 +44,9 @@ const VOICE = { language: 'he-IL', voice: 'Google.he-IL-Wavenet-D' };
 const ELEVENLABS_VOICE_ID = 'XrExE9yKIg1WjnnlVkGX'; // Matilda — warm, natural
 const ELEVENLABS_KEY = () => { const k = (process.env.ELEVENLABS_API_KEY||'').split('\n')[0].trim(); console.log('[EL] key len:', k.length); return k || '387f445c7db0a79f05deba4bb8e5db2a'; };
 
+// Store audio buffers in memory (keyed by token)
+const audioCache = {};
+
 async function ttsToUrl(text, callSid) {
   try {
     const resp = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`, {
@@ -55,16 +58,18 @@ async function ttsToUrl(text, callSid) {
         voice_settings: { stability: 0.5, similarity_boost: 0.75 }
       })
     });
-    if (!resp.ok) throw new Error('ElevenLabs HTTP ' + resp.status);
+    if (!resp.ok) { console.error('ElevenLabs HTTP:', resp.status); return null; }
     const buf = Buffer.from(await resp.arrayBuffer());
-    const filename = `audio_${callSid}_${Date.now()}.mp3`;
-    const audioPath = path.join(__dirname, 'audio', filename);
-    if (!fs.existsSync(path.join(__dirname, 'audio'))) fs.mkdirSync(path.join(__dirname, 'audio'));
-    fs.writeFileSync(audioPath, buf);
-    return `${BASE()}/audio/${filename}`;
+    const token = `${callSid}_${Date.now()}`;
+    audioCache[token] = buf;
+    // Clean up after 5 minutes
+    setTimeout(() => delete audioCache[token], 5 * 60 * 1000);
+    const url = `${BASE()}/tts/${token}`;
+    console.log('[TTS] Generated audio, url:', url, 'size:', buf.length);
+    return url;
   } catch(e) {
     console.error('ElevenLabs error:', e.message);
-    return null; // fallback to Twilio TTS
+    return null;
   }
 }
 
@@ -296,7 +301,14 @@ app.get('/call/:userId', async (req, res) => {
   }
 });
 
-app.use('/audio', express.static(path.join(__dirname, 'audio')));
+// Serve ElevenLabs audio from memory cache
+app.get('/tts/:token', (req, res) => {
+  const buf = audioCache[req.params.token];
+  if (!buf) return res.status(404).send('Audio not found');
+  res.set('Content-Type', 'audio/mpeg');
+  res.set('Content-Length', buf.length);
+  res.send(buf);
+});
 app.get('/', (req, res) => res.json({ status: '🌿 צל running', users: getAllUsers().map(u=>u.name) }));
 
 app.get('/debug-env', (req, res) => {
