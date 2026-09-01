@@ -41,8 +41,75 @@ const PHONE = () => {
   return p;
 };
 const VOICE = { language: 'he-IL', voice: 'Google.he-IL-Wavenet-D' };
-const ELEVENLABS_VOICE_ID = 'XrExE9yKIg1WjnnlVkGX'; // Matilda — warm, natural
-const ELEVENLABS_KEY = () => { let k = (process.env.ELEVENLABS_API_KEY||'').split('\n')[0].split('=').pop().trim(); if(!k||k.length<20) k='387f445c7db0a79f05deba4bb8e5db2a'; console.log('[EL] key len:', k.length, 'prefix:', k.substring(0,8)); return k; };
+// OpenAI TTS — natural Hebrew voice
+
+// Store audio buffers in memory (keyed by token)
+const audioCache = {};
+
+async function ttsToUrl(text, callSid) {
+  try {
+    const response = await openai().audio.speech.create({
+      model: 'tts-1',
+      voice: 'nova',
+      input: text,
+      response_format: 'mp3'
+    });
+    const buf = Buffer.from(await response.arrayBuffer());
+    const token = `${callSid}_${Date.now()}`;
+    audioCache[token] = buf;
+    setTimeout(() => delete audioCache[token], 5 * 60 * 1000);
+    const url = `${BASE()}/tts/${token}`;
+    console.log('[TTS] OpenAI audio ready, size:', buf.length, 'url:', url);
+    return url;
+  } catch(e) {
+    console.error('[TTS] OpenAI error:', e.message);
+    return null;
+  }
+}
+equire('dotenv').config();
+const express = require('express');
+const twilio = require('twilio');
+const OpenAI = require('openai');
+const cron = require('node-cron');
+const fs = require('fs');
+const path = require('path');
+const https = require('https');
+
+const app = express();
+app.use(express.urlencoded({ extended: false }));
+app.use(express.json());
+
+// Lazy clients — init only when first used (env vars guaranteed ready)
+let _twilio, _openai;
+const twilioClient = () => _twilio || (_twilio = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN));
+const openai = () => {
+  if (!_openai) {
+    // Extract just the sk-... part from whatever is in the env var
+    let rawKey = process.env.OPENAI_API_KEY || '';
+    // If it contains "OPENAI_API_KEY=" prefix, extract after it
+    if (rawKey.includes('=')) rawKey = rawKey.split('=').slice(1).join('=');
+    // Take only first line, trim whitespace
+    rawKey = rawKey.split('\n')[0].split('\r')[0].trim();
+    console.log('[DEBUG] API key starts with:', rawKey.substring(0, 10));
+    _openai = new OpenAI({ apiKey: rawKey });
+  }
+  return _openai;
+};
+const BASE = () => process.env.BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
+// Clean env vars that might have extra content
+const PHONE = () => {
+  let p = process.env.TWILIO_PHONE_NUMBER || '';
+  // Strip "KEY=VALUE" format if accidentally stored with key name
+  if (p.includes('=')) p = p.split('=').pop();
+  // Take first line only
+  p = p.split('\n')[0].split('\r')[0].trim();
+  // Fallback to known number if empty or suspicious
+  if (!p.startsWith('+972')) p = '+97233768596';
+  console.log('[PHONE]', p);
+  return p;
+};
+const VOICE = { language: 'he-IL', voice: 'Google.he-IL-Wavenet-D' };
+// OpenAI TTS — natural Hebrew voice
 
 // Store audio buffers in memory (keyed by token)
 const audioCache = {};
