@@ -449,7 +449,7 @@ const processedCalls = new Set();
 
 async function pollVapiCalls() {
   try {
-    const calls = await vapiRequest('GET', 'call?limit=20&status=ended');
+    const calls = await vapiRequest('GET', 'call?limit=20');
     if (!Array.isArray(calls)) return;
 
     for (const call of calls) {
