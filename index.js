@@ -443,6 +443,65 @@ app.get('/', async (req, res) => {
 });
 
 // ── Daily cron — 10:00 Israel (07:00 UTC) ────────────────────
+
+// ── Vapi call poller — every 2 min, catches calls missed by webhook ────────
+const processedCalls = new Set();
+
+async function pollVapiCalls() {
+  try {
+    const calls = await vapiRequest('GET', 'call?limit=20&status=ended');
+    if (!Array.isArray(calls)) return;
+
+    for (const call of calls) {
+      const callId = call.id;
+      if (!callId || processedCalls.has(callId)) continue;
+
+      const existing = await sbFetch('GET', `/rest/v1/calls?vapi_call_id=eq.${callId}&limit=1`);
+      if (Array.isArray(existing) && existing.length > 0) {
+        processedCalls.add(callId); continue;
+      }
+
+      const userId = call.metadata?.userId;
+      if (!userId) { processedCalls.add(callId); continue; }
+
+      console.log(`🔄 Poller: processing missed call ${callId} for user ${userId}`);
+
+      const summary    = call.analysis?.summary || call.summary || null;
+      const transcript = call.artifact?.transcript || null;
+
+      await saveCall({
+        id: callId, user_id: userId, vapi_call_id: callId,
+        status: 'ended', duration: call.duration || null,
+        ended_reason: call.endedReason || null, summary, transcript,
+      });
+
+      const user = await loadUser(userId);
+      if (user) {
+        const today = new Date().toISOString().split('T')[0];
+        const memory = user.memory || [];
+        const callSummary = summary || 'השיחה הסתיימה.';
+        memory.push({ date: today, summary: callSummary, duration: call.duration || 0 });
+        if (memory.length > 30) memory.splice(0, memory.length - 30);
+        await saveUser({ ...user, memory });
+
+        const alertResult = detectAlerts(transcript || callSummary);
+        if (alertResult.triggered && user.family?.primaryContact) {
+          console.log(`🚨 Alert: ${alertResult.severity} — ${alertResult.matches.join(', ')}`);
+          await sendFamilyAlert(user, alertResult, transcript, call.duration);
+        }
+        if (user.family?.primaryContact) {
+          await sendFamilyWhatsApp(user, callSummary, call.duration, alertResult.triggered);
+        }
+      }
+      processedCalls.add(callId);
+    }
+  } catch (e) {
+    console.error('🔄 Poller error:', e.message);
+  }
+}
+cron.schedule('*/2 * * * *', pollVapiCalls);
+console.log('🔄 Vapi call poller started (every 2 min)');
+
 cron.schedule('0 7 * * *', async () => {
   console.log('⏰ Daily calls...');
   const users = await getAllUsers();
