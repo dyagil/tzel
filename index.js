@@ -431,6 +431,15 @@ app.get('/calls/:userId', async (req, res) => {
   res.json(rows);
 });
 
+
+// Manual poll trigger (for debugging)
+app.get('/poll', async (req, res) => {
+  if (!authCheck(req, res)) return;
+  console.log('🔄 Manual poll triggered');
+  pollVapiCalls().catch(e => console.error('poll error:', e.message));
+  res.json({ ok: true, message: 'Poll triggered, check logs' });
+});
+
 // Health
 app.get('/', async (req, res) => {
   const users = await getAllUsers();
