@@ -534,3 +534,4 @@ app.listen(PORT, () => {
   if (!VAPI_KEY)     console.warn('⚠️  VAPI_API_KEY missing');
   if (!SUPABASE_KEY) console.warn('⚠️  SUPABASE_SERVICE_KEY missing');
 });
+
