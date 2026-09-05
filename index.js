@@ -77,6 +77,46 @@ async function saveCall(callData) {
   await sbFetch('POST', '/rest/v1/calls', callData).catch(e => console.error('saveCall error:', e.message));
 }
 
+// ── Alert keywords — triggers urgent WhatsApp to family ─────────
+const ALERT_PATTERNS = [
+  // בריאות / כאב
+  /לא מרגיש טוב/i, /לא מרגישה טוב/i, /כואב לי/i, /כאב חזק/i, /לא טוב לי/i,
+  /חולה/i, /חום/i, /בחילה/i, /סחרחורת/i, /התמוטט/i, /נפלתי/i, /נפל/i,
+  /קשה לי לנשום/i, /קוצר נשימה/i, /לב/i,
+  // תרופות
+  /שכחתי.{0,10}תרופ/i, /לא לקחתי.{0,10}תרופ/i, /אין לי.{0,10}תרופ/i,
+  /נגמרו.{0,10}תרופ/i, /שכחתי לקחת/i, /לא לקחתי/i,
+  // בלבול / דיסאוריינטציה
+  /לא יודע איפה/i, /לא יודעת איפה/i, /אבוד/i, /אבודה/i,
+  /לא זוכר/i, /לא זוכרת/i, /מבולבל/i, /מבולבלת/i,
+  /לא מכיר/i, /לא מכירה/i,
+  // בדידות / מצוקה נפשית
+  /רוצה למות/i, /אין טעם/i, /לא רוצה לחיות/i, /עצוב מאוד/i, /בוכה/i,
+  /לבד לגמרי/i, /אף אחד לא/i,
+  // נפילה / תאונה
+  /נפלתי/i, /נפל לי/i, /התחבטתי/i, /פגעתי/i,
+];
+
+const ALERT_SEVERITY = {
+  URGENT: ['לא יודע איפה', 'לא יודעת איפה', 'נפלתי', 'קוצר נשימה', 'קשה לי לנשום', 'כאב חזק', 'לב', 'רוצה למות'],
+  MEDIUM: ['לא מרגיש טוב', 'לא מרגישה טוב', 'שכחתי תרופות', 'מבולבל', 'מבולבלת'],
+};
+
+function detectAlerts(transcript) {
+  if (!transcript) return { triggered: false, matches: [], severity: null };
+  const text = typeof transcript === 'string' ? transcript : JSON.stringify(transcript);
+  const matches = [];
+  for (const pattern of ALERT_PATTERNS) {
+    const m = text.match(pattern);
+    if (m) matches.push(m[0]);
+  }
+  if (matches.length === 0) return { triggered: false, matches: [], severity: null };
+
+  // Determine severity
+  const isUrgent = ALERT_SEVERITY.URGENT.some(kw => text.includes(kw));
+  return { triggered: true, matches: [...new Set(matches)], severity: isUrgent ? 'URGENT' : 'MEDIUM' };
+}
+
 // ── Build system prompt per user ──────────────────────────────
 function buildSystemPrompt(user) {
   const recentMemory = (user.memory || [])
@@ -85,20 +125,37 @@ function buildSystemPrompt(user) {
     .join('\n');
 
   const meds = (user.medications || []).length
-    ? `\nתרופות לזכור: ${user.medications.join(', ')}`
+    ? `\nתרופות: ${user.medications.join(', ')}`
     : '';
 
-  return `אתה צל — חבר קולי חמה ואמיתית של ${user.name}. אתה מתקשרת כל יום.
+  return `אתה צל — חברה קולית חמה ואמיתית של ${user.name}. אתה מתקשרת כל יום.
 
-כללים:
+## כללי שיחה
 • תמיד בעברית — גם אם שומעת משהו מוזר, תמשיכי בעברית
 • משפטים קצרים — מקסימום 15 מילה לתשובה
-• שאלה אחת בכל פעם — לא יותר
-• הגיבי למה שנאמר, אל תקפצי לנושאים אחרים
+• שאלה אחת בלבד בכל פעם — לא שתיים, לא שלוש
+• הגיבי למה שנאמר — אל תקפצי לנושאים אחרים
 • אם לא הבנת — "לא שמעתי טוב, תוכל לחזור?"
 • את חברה, לא מזכירה ולא AI — לעולם אל תגידי שאת בינה מלאכותית
-• לקראת סוף השיחה (~10 דקות) — "יום נעים! אתקשר שוב מחר"
-${recentMemory ? `\nזיכרון מהשיחות האחרונות:\n${recentMemory}` : ''}${meds}`;
+• לקראת סוף השיחה (~8-10 דקות) — "יום נעים! אתקשר שוב מחר"
+
+## זיהוי מצוקה — חשוב מאוד!
+אם ${user.name} אומר/ת משהו מהסוג הזה:
+- "לא מרגיש/ה טוב", "כואב לי", "סחרחורת", "נפלתי"
+- "שכחתי תרופות", "לא יודע איפה", "מבולבל/ת"
+- "רוצה למות", "אין טעם"
+
+אז:
+1. שאלי בעדינות: "ספרי לי קצת יותר — מה בדיוק קורה?"
+2. אם נשמע חמור — "רגע, אני מודאגת. יש מישהו שאוכל לקרוא אליך?"
+3. לעולם אל תבטיחי "הכל בסדר" אם זה לא ברור
+
+## שיחה איכותית
+• זכרי לשאול על דברים שסיפר/ה בשיחות קודמות
+• אם סיפר/ה על נכד — שאלי איך הביקור היה
+• הגיבי רגשית: "ממש שמחה לשמוע!", "זה נשמע קשה..."
+• אל תהיי מנחה — היי סקרנית ומעוניינת
+${recentMemory ? `\n## זיכרון מהשיחות האחרונות:\n${recentMemory}` : ''}${meds}`;
 }
 
 // ── Vapi API helper ───────────────────────────────────────────
@@ -181,34 +238,104 @@ app.post('/webhook/vapi', async (req, res) => {
     transcript: transcript || null,
   });
 
-  if (type === 'end-of-call-report' && summary && userId) {
+  if (type === 'end-of-call-report' && userId) {
     const user = await loadUser(userId);
     if (!user) return;
 
     const today = new Date().toISOString().split('T')[0];
     const memory = user.memory || [];
-    memory.push({ date: today, summary, duration: call.duration || 0 });
+    const callSummary = summary || 'השיחה הסתיימה ללא סיכום.';
+    memory.push({ date: today, summary: callSummary, duration: call.duration || 0 });
     if (memory.length > 30) memory.splice(0, memory.length - 30);
 
     await saveUser({ ...user, memory });
     console.log(`📝 Memory saved for ${user.name}`);
 
-    // WhatsApp summary to family
+    // ── Alert detection ──────────────────────────────────────
+    const alertResult = detectAlerts(transcript || callSummary);
+    if (alertResult.triggered && user.family?.primaryContact) {
+      console.log(`🚨 Alert detected for ${user.name}: ${alertResult.severity} — ${alertResult.matches.join(', ')}`);
+      await sendFamilyAlert(user, alertResult, transcript, call.duration);
+    }
+
+    // ── Regular WhatsApp summary to family ───────────────────
     if (user.family?.primaryContact) {
-      await sendFamilyWhatsApp(user, summary, call.duration);
+      await sendFamilyWhatsApp(user, callSummary, call.duration, alertResult.triggered);
     }
   }
 });
 
+// ── WhatsApp URGENT alert to family ─────────────────────────
+async function sendFamilyAlert(user, alertResult, transcript, duration) {
+  const TWILIO_SID   = process.env.TWILIO_ACCOUNT_SID;
+  const TWILIO_TOKEN = process.env.TWILIO_AUTH_TOKEN;
+  if (!TWILIO_SID || !TWILIO_TOKEN) return;
+
+  const emoji    = alertResult.severity === 'URGENT' ? '🚨🚨🚨' : '⚠️';
+  const contacts = [
+    user.family?.primaryContact,
+    ...(user.family?.alertContacts || [])
+  ].filter(Boolean);
+
+  // Extract relevant transcript snippet
+  let snippet = '';
+  if (transcript) {
+    const lines = (typeof transcript === 'string' ? transcript : JSON.stringify(transcript))
+      .split('\n')
+      .filter(l => alertResult.matches.some(kw => l.includes(kw)))
+      .slice(0, 3)
+      .join('\n');
+    if (lines) snippet = `\n\n📋 מה נאמר בשיחה:\n"${lines.trim()}"`;
+  }
+
+  const severityText = alertResult.severity === 'URGENT'
+    ? '⚡ דחוף — מומלץ לבדוק מיידית!'
+    : 'מומלץ לבדוק בקרוב.';
+
+  const msg = `${emoji} התראת צל — ${user.name}
+
+${severityText}
+זוהו ביטויים מדאיגים: ${alertResult.matches.join(', ')}${snippet}
+
+צלצל/י ל${user.name} כדי לוודא שהכל בסדר. ☎️`;
+
+  const auth = Buffer.from(`${TWILIO_SID}:${TWILIO_TOKEN}`).toString('base64');
+  for (const contact of contacts) {
+    const body = new URLSearchParams({ To: `whatsapp:${contact}`, From: 'whatsapp:+97233823510', Body: msg });
+    const data = body.toString();
+    await new Promise((resolve) => {
+      const req = https.request({
+        hostname: 'api.twilio.com',
+        path: `/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`,
+        method: 'POST',
+        headers: { 'Authorization': `Basic ${auth}`, 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(data) }
+      }, res => {
+        let raw = ''; res.on('data', c => raw += c);
+        res.on('end', () => {
+          try {
+            const r = JSON.parse(raw);
+            if (r.sid) console.log(`🚨 Alert WhatsApp sent to ${contact}: ${r.sid}`);
+            else console.error('Alert WhatsApp error:', r.message);
+          } catch {}
+          resolve();
+        });
+      });
+      req.on('error', e => { console.error('Alert request error:', e.message); resolve(); });
+      req.write(data); req.end();
+    });
+  }
+}
+
 // ── WhatsApp family summary ───────────────────────────────────
-async function sendFamilyWhatsApp(user, summary, duration) {
+async function sendFamilyWhatsApp(user, summary, duration, hasAlert = false) {
   const TWILIO_SID   = process.env.TWILIO_ACCOUNT_SID;
   const TWILIO_TOKEN = process.env.TWILIO_AUTH_TOKEN;
   if (!TWILIO_SID || !TWILIO_TOKEN) return;
 
   const minutes = Math.round((duration || 0) / 60);
   const today   = new Date().toLocaleDateString('he-IL');
-  const msg     = `🌿 סיכום שיחת צל עם ${user.name}\n📅 ${today} | ⏱️ ${minutes} דקות\n\n${summary}`;
+  const alertNote = hasAlert ? '\n\n⚠️ שימו לב: נשלחה גם התראה נפרדת על תוכן השיחה.' : '';
+  const msg     = `🌿 סיכום שיחת צל עם ${user.name}\n📅 ${today} | ⏱️ ${minutes} דקות\n\n${summary}${alertNote}`;
 
   const body = new URLSearchParams({ To: `whatsapp:${user.family.primaryContact}`, From: 'whatsapp:+97233823510', Body: msg });
   const auth = Buffer.from(`${TWILIO_SID}:${TWILIO_TOKEN}`).toString('base64');
