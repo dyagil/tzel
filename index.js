@@ -475,6 +475,16 @@ app.post('/users', async (req, res) => {
   res.json({ ok: true, user });
 });
 
+// Patch user memory or fields
+app.patch('/users/:userId', async (req, res) => {
+  if (!authCheck(req, res)) return;
+  const user = await loadUser(req.params.userId);
+  if (!user) return res.status(404).json({ error: 'Not found' });
+  const updated = { ...user, ...req.body };
+  await saveUser(updated);
+  res.json({ ok: true, user: updated });
+});
+
 app.get('/users/:userId', async (req, res) => {
   const user = await loadUser(req.params.userId);
   if (!user) return res.status(404).json({ error: 'Not found' });
