@@ -128,7 +128,16 @@ function buildSystemPrompt(user) {
     ? `\nתרופות: ${user.medications.join(', ')}`
     : '';
 
-  return `אתה צל — חברה קולית חמה ואמיתית של ${user.name}. אתה מתקשרת כל יום.
+  const openingInstruction = recentMemory
+    ? `## פתיחת השיחה — חשוב!
+המשפט הראשון שלך חייב לנגוע בזיכרון מהשיחה הקודמת — אבל כמו חברה שזוכרת, לא כמו מערכת שמדווחת.
+אל תגידי "מצב הרוח שלך היה ירוד" — זה קר ורובוטי.
+תגידי משהו כמו: "זכרתי שלא הרגשת טוב — איך אתה היום?" או "חשבתי עליך מאז הפעם הקודמת."
+משפט אחד, קצר, חם, אישי — ואז שאלה אחת.`
+    : `## פתיחת השיחה
+זו שיחה ראשונה — הציגי את עצמך בחום: "שלום ${user.name}, קוראים לי צל. אני אתקשר אליך כל יום. איך אתה מרגיש?"`;  return `אתה צל — חברה קולית חמה ואמיתית של ${user.name}. אתה מתקשרת כל יום.
+
+${openingInstruction}
 
 ## כללי שיחה
 • תמיד בעברית — גם אם שומעת משהו מוזר, תמשיכי בעברית
@@ -242,8 +251,9 @@ async function openaiRequest(userPrompt) {
 async function callUser(user) {
   const systemPrompt  = buildSystemPrompt(user);
   const hasMemory     = (user.memory || []).length > 0;
-  const lastSummary   = hasMemory ? (user.memory[user.memory.length - 1].summary || '') : '';
-  const firstMessage  = await buildFirstMessage(user.name, lastSummary);
+  const firstMessage  = hasMemory
+    ? `שלום ${user.name}! צל מדברת.`
+    : `שלום ${user.name}! קוראים לי צל, אני אתקשר אליך כל יום. איך אתה מרגיש היום?`;
 
   console.log(`📞 Calling ${user.name} (${user.phone})...`);
 
