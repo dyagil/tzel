@@ -183,14 +183,67 @@ async function vapiRequest(method, endpoint, body = null) {
   });
 }
 
+// ── Build warm opening from last summary via GPT ─────────────
+async function buildFirstMessage(userName, lastSummary) {
+  if (!lastSummary) {
+    return `שלום ${userName}! קוראים לי צל, אני אתקשר אליך כל יום. איך אתה מרגיש היום?`;
+  }
+  try {
+    const prompt = `אתה עוזר שכותב משפט פתיחה חם לשיחת טלפון עם קשיש בשם ${userName}.
+הסיכום מהשיחה האחרונה: "${lastSummary}"
+
+כתוב משפט אחד קצר (מקסימום 15 מילה) שמראה שאתה זוכר מהשיחה הקודמת — אבל בגוף ראשון, כמו חברה אמיתית שזוכרת, לא כמו מערכת שמדווחת. למשל: "זכרתי שלא הרגשת טוב — איך אתה היום?" או "חשבתי עליך — ספר לי איך היה מאז הפעם הקודמת."
+כתוב רק את המשפט, בעברית, בלי מרכאות.`;
+
+    const resp = await openaiRequest(prompt);
+    return `שלום ${userName}! צל מדברת. ${resp}`;
+  } catch (e) {
+    console.error('buildFirstMessage GPT error:', e.message);
+    return `שלום ${userName}! צל מדברת. זכרתי שדיברנו — איך אתה מרגיש היום?`;
+  }
+}
+
+// ── OpenAI single-turn helper ─────────────────────────────────
+async function openaiRequest(userPrompt) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: userPrompt }],
+      max_tokens: 80,
+      temperature: 0.7
+    });
+    const opts = {
+      hostname: 'api.openai.com',
+      path: '/v1/chat/completions',
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body)
+      }
+    };
+    const req = https.request(opts, (res) => {
+      let raw = '';
+      res.on('data', c => raw += c);
+      res.on('end', () => {
+        try {
+          const d = JSON.parse(raw);
+          resolve(d.choices?.[0]?.message?.content?.trim() || '');
+        } catch { reject(new Error('OpenAI parse error')); }
+      });
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
 // ── Make outbound call ────────────────────────────────────────
 async function callUser(user) {
   const systemPrompt  = buildSystemPrompt(user);
   const hasMemory     = (user.memory || []).length > 0;
   const lastSummary   = hasMemory ? (user.memory[user.memory.length - 1].summary || '') : '';
-  const firstMessage  = hasMemory
-    ? `שלום ${user.name}! צל מדברת. ${lastSummary ? `בפעם הקודמת סיפרת לי — ${lastSummary.substring(0, 60)}. ` : ''}איך אתה מרגיש היום?`
-    : `שלום ${user.name}! קוראים לי צל, אני אתקשר אליך כל יום. איך אתה מרגיש היום?`;
+  const firstMessage  = await buildFirstMessage(user.name, lastSummary);
 
   console.log(`📞 Calling ${user.name} (${user.phone})...`);
 
