@@ -315,7 +315,11 @@ app.post('/webhook/vapi', async (req, res) => {
     console.log(`📝 Memory saved for ${user.name}`);
 
     // ── Alert detection ──────────────────────────────────────
-    const alertResult = detectAlerts(transcript || callSummary);
+    // Vapi may send transcript as array of {role,message} objects — flatten to text
+    const transcriptText = Array.isArray(transcript)
+      ? transcript.map(m => `${m.role}: ${m.message || ''}`).join(' ')
+      : (transcript || '');
+    const alertResult = detectAlerts(transcriptText || callSummary);
     if (alertResult.triggered && user.family?.primaryContact) {
       console.log(`🚨 Alert detected for ${user.name}: ${alertResult.severity} — ${alertResult.matches.join(', ')}`);
       await sendFamilyAlert(user, alertResult, transcript, call.duration);
