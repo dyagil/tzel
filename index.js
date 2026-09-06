@@ -370,29 +370,41 @@ ${severityText}
 
   const auth = Buffer.from(`${TWILIO_SID}:${TWILIO_TOKEN}`).toString('base64');
   for (const contact of contacts) {
-    const body = new URLSearchParams({ To: `whatsapp:${contact}`, From: 'whatsapp:+97233823510', Body: msg });
-    const data = body.toString();
-    await new Promise((resolve) => {
-      const req = https.request({
-        hostname: 'api.twilio.com',
-        path: `/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`,
-        method: 'POST',
-        headers: { 'Authorization': `Basic ${auth}`, 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(data) }
-      }, res => {
-        let raw = ''; res.on('data', c => raw += c);
-        res.on('end', () => {
-          try {
-            const r = JSON.parse(raw);
-            if (r.sid) console.log(`🚨 Alert WhatsApp sent to ${contact}: ${r.sid}`);
-            else console.error('Alert WhatsApp error:', r.message);
-          } catch {}
-          resolve();
-        });
-      });
-      req.on('error', e => { console.error('Alert request error:', e.message); resolve(); });
-      req.write(data); req.end();
-    });
+    await twilioSend(auth, TWILIO_SID, contact, msg);
   }
+}
+
+// Send WhatsApp first, fallback to SMS on 63016 window error
+async function twilioSend(auth, sid, contact, msg) {
+  const tryRequest = (params) => new Promise((resolve) => {
+    const data = new URLSearchParams(params).toString();
+    const req = https.request({
+      hostname: 'api.twilio.com',
+      path: `/2010-04-01/Accounts/${sid}/Messages.json`,
+      method: 'POST',
+      headers: { 'Authorization': `Basic ${auth}`, 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(data) }
+    }, res => {
+      let raw = ''; res.on('data', c => raw += c);
+      res.on('end', () => { try { resolve(JSON.parse(raw)); } catch { resolve({}); } });
+    });
+    req.on('error', e => { console.error('Twilio request error:', e.message); resolve({}); });
+    req.write(data); req.end();
+  });
+
+  // Try WhatsApp first
+  const waResult = await tryRequest({ To: `whatsapp:${contact}`, From: 'whatsapp:+97233823510', Body: msg });
+  if (waResult.sid) {
+    console.log(`🚨 Alert WhatsApp sent to ${contact}: ${waResult.sid}`);
+    return;
+  }
+
+  // Fallback to SMS if WhatsApp window closed (63016) or any WA error
+  const errCode = waResult.code || waResult.error_code;
+  console.warn(`WhatsApp failed (${errCode}), falling back to SMS → ${contact}`);
+  const TWILIO_SMS_FROM = process.env.TWILIO_PHONE_NUMBER || '+97233768596';
+  const smsResult = await tryRequest({ To: contact, From: TWILIO_SMS_FROM, Body: msg });
+  if (smsResult.sid) console.log(`📱 Alert SMS sent to ${contact}: ${smsResult.sid}`);
+  else console.error('SMS also failed:', smsResult.message);
 }
 
 // ── WhatsApp family summary ───────────────────────────────────
@@ -406,30 +418,8 @@ async function sendFamilyWhatsApp(user, summary, duration, hasAlert = false) {
   const alertNote = hasAlert ? '\n\n⚠️ שימו לב: נשלחה גם התראה נפרדת על תוכן השיחה.' : '';
   const msg     = `🌿 סיכום שיחת צל עם ${user.name}\n📅 ${today} | ⏱️ ${minutes} דקות\n\n${summary}${alertNote}`;
 
-  const body = new URLSearchParams({ To: `whatsapp:${user.family.primaryContact}`, From: 'whatsapp:+97233823510', Body: msg });
   const auth = Buffer.from(`${TWILIO_SID}:${TWILIO_TOKEN}`).toString('base64');
-  const data = body.toString();
-
-  return new Promise((resolve) => {
-    const req = https.request({
-      hostname: 'api.twilio.com',
-      path: `/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`,
-      method: 'POST',
-      headers: { 'Authorization': `Basic ${auth}`, 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(data) }
-    }, res => {
-      let raw = ''; res.on('data', c => raw += c);
-      res.on('end', () => {
-        try {
-          const r = JSON.parse(raw);
-          if (r.sid) console.log(`📱 WhatsApp sent: ${r.sid}`);
-          else console.error('WhatsApp error:', r.message);
-        } catch {}
-        resolve();
-      });
-    });
-    req.on('error', e => { console.error('WhatsApp request error:', e.message); resolve(); });
-    req.write(data); req.end();
-  });
+  await twilioSend(auth, TWILIO_SID, user.family.primaryContact, msg);
 }
 
 // ── REST API ──────────────────────────────────────────────────
