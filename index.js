@@ -283,7 +283,9 @@ async function callUser(user) {
 // ── Vapi Webhook ──────────────────────────────────────────────
 app.post('/webhook/vapi', async (req, res) => {
   res.sendStatus(200); // respond fast always
-  const { type, call, summary, transcript } = req.body;
+  // Vapi wraps payload under req.body.message
+  const payload = req.body.message || req.body;
+  const { type, call, summary, transcript } = payload;
   if (!call) return;
 
   const userId = call?.metadata?.userId;
