@@ -298,7 +298,27 @@ async function callUser(user) {
       model: {
         provider: 'openai',
         model: 'gpt-4o',
-        messages: [{ role: 'system', content: systemPrompt }]
+        messages: [{ role: 'system', content: systemPrompt }],
+        // ── tools must be included in override otherwise they get dropped ─
+        tools: [{
+          type: 'function',
+          function: {
+            name: 'send_message_to_family',
+            description: 'שולחת הודעת WhatsApp למשפחה של הקשיש כשהוא מבקש להעביר הודעה',
+            parameters: {
+              type: 'object',
+              properties: {
+                message: { type: 'string', description: 'ההודעה שהקשיש רוצה להעביר' },
+                recipient: { type: 'string', description: 'למי ההודעה (בן, בת, נכד...)' }
+              },
+              required: ['message']
+            }
+          },
+          server: {
+            url: `${process.env.BASE_URL || 'https://tzel-companion-production.up.railway.app'}/tool/send-message`,
+            timeoutSeconds: 20
+          }
+        }]
       }
     },
     metadata: { userId: user.id }
