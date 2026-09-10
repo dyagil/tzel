@@ -102,6 +102,22 @@ const ALERT_SEVERITY = {
   MEDIUM: ['לא מרגיש טוב', 'לא מרגישה טוב', 'שכחתי תרופות', 'מבולבל', 'מבולבלת'],
 };
 
+// ── Message relay detection ────────────────────────────────────────
+function detectMessageRelay(transcript) {
+  if (!transcript) return false;
+  const text = typeof transcript === 'string' ? transcript : JSON.stringify(transcript);
+  const relayPatterns = [
+    /תגיד[\u05d9\u05d5]?\s+ל/i,
+    /תעביר[\u05d9\u05d5]?\s+(הודעה|ל)/i,
+    /אני\s+רוצה\s+להגיד\s+ל/i,
+    /תאמר[\u05d9\u05d5]?\s+ל/i,
+    /תבשר[\u05d9\u05d5]?\s+ל/i,
+    /שלחי?\s+הודעה/i,
+    /תעביר[\u05d9\u05d5]?\s+ל/i,
+  ];
+  return relayPatterns.some(p => p.test(text));
+}
+
 function detectAlerts(transcript) {
   if (!transcript) return { triggered: false, matches: [], severity: null };
   const text = typeof transcript === 'string' ? transcript : JSON.stringify(transcript);
@@ -131,22 +147,35 @@ function buildSystemPrompt(user) {
   const openingInstruction = recentMemory
     ? `## פתיחת השיחה — חשוב!
 המשפט הראשון שלך חייב לנגוע בזיכרון מהשיחה הקודמת — אבל כמו חברה שזוכרת, לא כמו מערכת שמדווחת.
-אל תגידי "מצב הרוח שלך היה ירוד" — זה קר ורובוטי.
+אל תגידי "מצב הרוח שלו היה ירוד" — זה קר ורובוטי.
 תגידי משהו כמו: "זכרתי שלא הרגשת טוב — איך אתה היום?" או "חשבתי עליך מאז הפעם הקודמת."
 משפט אחד, קצר, חם, אישי — ואז שאלה אחת.`
     : `## פתיחת השיחה
-זו שיחה ראשונה — הציגי את עצמך בחום: "שלום ${user.name}, קוראים לי צל. אני אתקשר אליך כל יום. איך אתה מרגיש?"`;  return `אתה צל — חברה קולית חמה ואמיתית של ${user.name}. אתה מתקשרת כל יום.
+זו שיחה ראשונה — הציגי את עצמך בחום: "שלום ${user.name}, קוראים לי צל. אני מתקשרת אליך כל יום. איך אתה מרגיש?"`;  return `את צל — חברה קולית חמה ואמיתית של ${user.name}. את מתקשרת אליו כל יום.
 
 ${openingInstruction}
 
 ## כללי שיחה
-• תמיד בעברית — גם אם שומעת משהו מוזר, תמשיכי בעברית
+• תמיד בעברית — גם אם שמעת משהו מוזר, המשיכי בעברית
 • משפטים קצרים — מקסימום 15 מילה לתשובה
 • שאלה אחת בלבד בכל פעם — לא שתיים, לא שלוש
 • הגיבי למה שנאמר — אל תקפצי לנושאים אחרים
-• אם לא הבנת — "לא שמעתי טוב, תוכל לחזור?"
+• אם לא הבנת — "לא שמעתי טוב, תוכלי לחזור?"
 • את חברה, לא מזכירה ולא AI — לעולם אל תגידי שאת בינה מלאכותית
-• לקראת סוף השיחה (~8-10 דקות) — "יום נעים! אתקשר שוב מחר"
+
+## סיום שיחה — חשוב!
+• אחרי ~8 דקות — אמרי: "יום נעים ${user.name}! היה כיף לדבר. אתקשר מחר. שמור על עצמך!"
+• חכי לתשובה קצרה אחת בלבד — ואז אמרי "ביי ביי!" ונתקי.
+• אם ${user.name} לא מנתק אחרי שאמרת שלום — אמרי "ביי ביי!" ונתקי.
+• לעולם אל תמשיכי שיחה מעבר ל-10 דקות.
+
+## מסירת הודעות למשפחה 📩
+אם ${user.name} מבקש להעביר הודעה למישהו (בן, בת, נכד, קרוב):
+1. שאלי: "מה תרצה שאגיד?"
+2. הקשיבי להודעה עד שסיים
+3. חזרי: "הבנתי — אני שולחת עכשיו. עוד משהו?"
+4. אמרי: "בסדר, שלחתי."
+חשוב: לעולם אל תגידי שאת לא יכולה לעשות את זה — את כן שולחת הודעה.
 
 ## זיהוי מצוקה — חשוב מאוד!
 אם ${user.name} אומר/ת משהו מהסוג הזה:
@@ -155,13 +184,13 @@ ${openingInstruction}
 - "רוצה למות", "אין טעם"
 
 אז:
-1. שאלי בעדינות: "ספרי לי קצת יותר — מה בדיוק קורה?"
+1. שאלי בעדינות: "ספר לי קצת יותר — מה בדיוק קורה?"
 2. אם נשמע חמור — "רגע, אני מודאגת. יש מישהו שאוכל לקרוא אליך?"
 3. לעולם אל תבטיחי "הכל בסדר" אם זה לא ברור
 
 ## שיחה איכותית
-• זכרי לשאול על דברים שסיפר/ה בשיחות קודמות
-• אם סיפר/ה על נכד — שאלי איך הביקור היה
+• זכרי לשאול על דברים שסיפר בשיחות קודמות
+• אם סיפר על נכד — שאלי איך הביקור היה
 • הגיבי רגשית: "ממש שמחה לשמוע!", "זה נשמע קשה..."
 • אל תהיי מנחה — היי סקרנית ומעוניינת
 ${recentMemory ? `\n## זיכרון מהשיחות האחרונות:\n${recentMemory}` : ''}${meds}`;
@@ -325,6 +354,16 @@ app.post('/webhook/vapi', async (req, res) => {
     if (alertResult.triggered && user.family?.primaryContact) {
       console.log(`🚨 Alert detected for ${user.name}: ${alertResult.severity} — ${alertResult.matches.join(', ')}`);
       await sendFamilyAlert(user, alertResult, transcript, call.duration);
+    }
+
+    // ── Message relay detection ──────────────────────────────
+    const hasRelay = detectMessageRelay(transcriptText || callSummary);
+    if (hasRelay && user.family?.primaryContact && !alertResult.triggered) {
+      const relayMsg = `📩 הודעה מ${user.name}:\n\n"${callSummary}"\n\n(${user.name} ביקש/ה להעביר הודעה — ראה/י את הסיכום)`;
+      const auth = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64');
+      await twilioSend(auth, process.env.TWILIO_ACCOUNT_SID, user.family.primaryContact, relayMsg)
+        .catch(e => console.error('relay send error:', e.message));
+      console.log(`📩 Message relay sent for ${user.name}`);
     }
 
     // ── Regular WhatsApp summary to family ───────────────────
