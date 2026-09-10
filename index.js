@@ -749,3 +749,8 @@ app.listen(PORT, () => {
 });
 
 // deploy trigger Thu Sep 10 04:34:29 PM UTC 2026
+
+// Version check endpoint
+app.get('/version', (req, res) => {
+  res.json({ commit: '98af4b0', endpoints: ['/tool/send-message', '/trigger-daily', '/webhook/vapi'] });
+});
