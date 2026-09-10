@@ -249,13 +249,13 @@ async function openaiRequest(userPrompt) {
 
 // ── Make outbound call ────────────────────────────────────────
 async function callUser(user) {
-  const systemPrompt  = buildSystemPrompt(user);
-  const hasMemory     = (user.memory || []).length > 0;
-  const firstMessage  = hasMemory
-    ? `שלום ${user.name}! צל מדברת.`
-    : `שלום ${user.name}! קוראים לי צל, אני אתקשר אליך כל יום. איך אתה מרגיש היום?`;
+  const systemPrompt = buildSystemPrompt(user);
 
-  console.log(`📞 Calling ${user.name} (${user.phone})...`);
+  // ── Build warm firstMessage using real memory via GPT ────────
+  const lastMemory   = (user.memory || []).slice(-1)[0];
+  const firstMessage = await buildFirstMessage(user.name, lastMemory?.summary || null);
+
+  console.log(`📞 Calling ${user.name} (${user.phone}) — memory: ${lastMemory ? (lastMemory.summary || '').slice(0, 60) + '…' : 'none'}`);
 
   const result = await vapiRequest('POST', 'call', {
     phoneNumberId: PHONE_NUMBER_ID,
@@ -580,19 +580,61 @@ async function pollVapiCalls() {
 cron.schedule('*/2 * * * *', pollVapiCalls);
 console.log('🔄 Vapi call poller started (every 2 min)');
 
-cron.schedule('0 7 * * *', async () => {
-  console.log('⏰ Daily calls...');
-  const users = await getAllUsers();
-  console.log(`📞 Calling ${users.length} active users`);
-  for (const user of users) {
-    try {
-      await callUser(user);
-      await new Promise(r => setTimeout(r, 5000));
-    } catch (e) {
-      console.error(`❌ Failed ${user.name}: ${e.message}`);
-    }
+// ── External Cron (Upstash QStash) — PRIMARY scheduler ─────────────────────
+// Setup: https://console.upstash.com/qstash → New Schedule
+// URL:      https://YOUR-APP.railway.app/trigger-daily
+// Method:   POST
+// Schedule: 0 7 * * *   (07:00 UTC = 10:00 Israel)
+// Headers:  x-call-token: <CALL_TOKEN>
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/trigger-daily', async (req, res) => {
+  const token = req.headers['x-call-token'] || req.query.token;
+  if (token !== CALL_TOKEN) {
+    console.warn('⚠️  /trigger-daily: unauthorized attempt');
+    return res.status(401).json({ error: 'Unauthorized' });
   }
-}, { timezone: 'UTC' });
+  console.log('⏰ External trigger: daily calls starting…');
+  res.json({ ok: true, message: 'Daily calls triggered' }); // respond before async work
+
+  (async () => {
+    try {
+      const users = await getAllUsers();
+      console.log(`📞 Calling ${users.length} active user(s)`);
+      for (const user of users) {
+        try {
+          await callUser(user);
+        } catch (e) {
+          console.error(`❌ Failed for ${user.name}: ${e.message}`);
+        }
+        await new Promise(r => setTimeout(r, 5000));
+      }
+      console.log('✅ Daily call loop complete');
+    } catch (err) {
+      console.error('❌ trigger-daily loop error:', err.message);
+    }
+  })();
+});
+
+// ── Daily cron — FALLBACK (primary is Upstash external trigger above) ────────
+// Keep as safety net for local dev or if Upstash is unavailable.
+cron.schedule('0 7 * * *', async () => {
+  console.log('⏰ [cron fallback] Daily calls starting…');
+  try {
+    const users = await getAllUsers();
+    console.log(`📞 [cron] Calling ${users.length} active user(s)`);
+    for (const user of users) {
+      try {
+        await callUser(user);
+      } catch (e) {
+        console.error(`❌ [cron] Failed for ${user.name}: ${e.message}`);
+      }
+      await new Promise(r => setTimeout(r, 5000));
+    }
+    console.log('✅ [cron fallback] Daily call loop complete');
+  } catch (err) {
+    console.error('❌ [cron fallback] loop error:', err.message);
+  }
+}, { timezone: 'Asia/Jerusalem' });
 
 // ── Start ─────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
