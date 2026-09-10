@@ -748,3 +748,4 @@ app.listen(PORT, () => {
   if (!SUPABASE_KEY) console.warn('⚠️  SUPABASE_SERVICE_KEY missing');
 });
 
+// deploy trigger Thu Sep 10 04:34:29 PM UTC 2026
