@@ -549,6 +549,11 @@ app.get('/poll', async (req, res) => {
   res.json({ ok: true, message: 'Poll triggered, check logs' });
 });
 
+// Tool endpoint health check
+app.get('/tool/send-message', (req, res) => {
+  res.json({ ok: true, endpoint: 'send_message_to_family tool ready' });
+});
+
 // Health
 app.get('/', async (req, res) => {
   const users = await getAllUsers();
