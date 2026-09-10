@@ -295,31 +295,9 @@ async function callUser(user) {
     assistantId: ASSISTANT_ID,
     assistantOverrides: {
       firstMessage,
-      model: {
-        provider: 'openai',
-        model: 'gpt-4o',
-        messages: [{ role: 'system', content: systemPrompt }],
-        // ── tools must be included in override otherwise they get dropped ─
-        tools: [{
-          type: 'function',
-          function: {
-            name: 'send_message_to_family',
-            description: 'שולחת הודעת WhatsApp למשפחה של הקשיש כשהוא מבקש להעביר הודעה',
-            parameters: {
-              type: 'object',
-              properties: {
-                message: { type: 'string', description: 'ההודעה שהקשיש רוצה להעביר' },
-                recipient: { type: 'string', description: 'למי ההודעה (בן, בת, נכד...)' }
-              },
-              required: ['message']
-            }
-          },
-          server: {
-            url: `${process.env.BASE_URL || 'https://tzel-companion-production.up.railway.app'}/tool/send-message`,
-            timeoutSeconds: 20
-          }
-        }]
-      }
+      // ── DO NOT override model here — it drops the assistant-level tools ────
+      // System prompt + tools are set on the assistant itself.
+      // Per-user memory is injected via firstMessage.
     },
     metadata: { userId: user.id }
   });
