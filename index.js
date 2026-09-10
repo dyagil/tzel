@@ -170,15 +170,12 @@ ${openingInstruction}
 • לעולם אל תמשיכי שיחה מעבר ל-10 דקות.
 
 ## מסירת הודעות למשפחה 📩
-יש לך כלי בשם send_message_to_family. השתמשי בו **מיידית** כשהקשיש מבטא כוונה להודיע למישהו — לא להמתין לסוף השיחה.
-
-מתי להפעיל: "תגידי לבן שלי...", "תודיעי לבתי...", "תשלחי ל..."
-
-איך לנהוג:
-1. הפעילי את הכלי מיד עם message + recipient
-2. אמרי: "בסדר, שלחתי. אפשר להמשיך."
-3. אל תחכי לאישור — הכלי פועל ברקע.
-חשוב: לעולם אל תגידי שאת לא יכולה — את כן יכולה ושולחת WhatsApp.
+אם ${user.name} מבקש להעביר הודעה למישהו (בן, בת, נכד, קרוב):
+1. שאלי: "מה תרצה שאגיד?"
+2. הקשיבי להודעה עד שסיים
+3. חזרי: "הבנתי — אני שולחת עכשיו. עוד משהו?"
+4. אמרי: "בסדר, שלחתי."
+חשוב: לעולם אל תגידי שאת לא יכולה לעשות את זה — את כן שולחת הודעה.
 
 ## זיהוי מצוקה — חשוב מאוד!
 אם ${user.name} אומר/ת משהו מהסוג הזה:
@@ -295,9 +292,11 @@ async function callUser(user) {
     assistantId: ASSISTANT_ID,
     assistantOverrides: {
       firstMessage,
-      // ── DO NOT override model here — it drops the assistant-level tools ────
-      // System prompt + tools are set on the assistant itself.
-      // Per-user memory is injected via firstMessage.
+      model: {
+        provider: 'openai',
+        model: 'gpt-4o',
+        messages: [{ role: 'system', content: systemPrompt }]
+      }
     },
     metadata: { userId: user.id }
   });
@@ -549,11 +548,6 @@ app.get('/poll', async (req, res) => {
   res.json({ ok: true, message: 'Poll triggered, check logs' });
 });
 
-// Tool endpoint health check
-app.get('/tool/send-message', (req, res) => {
-  res.json({ ok: true, endpoint: 'send_message_to_family tool ready' });
-});
-
 // Health
 app.get('/', async (req, res) => {
   const users = await getAllUsers();
@@ -625,63 +619,6 @@ async function pollVapiCalls() {
 cron.schedule('*/2 * * * *', pollVapiCalls);
 console.log('🔄 Vapi call poller started (every 2 min)');
 
-// ── Vapi Tool: send_message_to_family ───────────────────────────────────────
-app.post('/tool/send-message', async (req, res) => {
-  try {
-    const msg = req.body?.message;
-    if (!msg || msg.type !== 'tool-calls') {
-      return res.status(400).json({ error: 'not a tool-calls message' });
-    }
-
-    const toolCallList = msg.toolCallList ?? [];
-    const results = [];
-
-    for (const call of toolCallList) {
-      if (call.function?.name !== 'send_message_to_family') {
-        results.push({ toolCallId: call.id, result: 'פעולה לא מוכרת.' });
-        continue;
-      }
-
-      let args = {};
-      try { args = JSON.parse(call.function.arguments ?? '{}'); } catch {}
-
-      const userMessage   = args.message   || '';
-      const recipientHint = args.recipient || '';
-      const userId = msg?.call?.metadata?.userId || msg?.call?.customer?.number || null;
-
-      if (!userId || !userMessage) {
-        results.push({ toolCallId: call.id, result: 'לא הצלחתי לשלוח — חסר מידע.' });
-        continue;
-      }
-
-      try {
-        const user = await loadUser(userId);
-        if (!user?.family?.primaryContact) throw new Error('no family contact');
-
-        const recipientLabel = recipientHint ? ` ל${recipientHint}` : ' למשפחה';
-        const familyText =
-          `\ud83d\udce9 הודעה מ${user.name}${recipientLabel}:\n\n"${userMessage}"\n\n— נשלח על-ידי צל`;
-
-        const TWILIO_SID   = process.env.TWILIO_ACCOUNT_SID;
-        const TWILIO_TOKEN = process.env.TWILIO_AUTH_TOKEN;
-        const auth = Buffer.from(`${TWILIO_SID}:${TWILIO_TOKEN}`).toString('base64');
-        await twilioSend(auth, TWILIO_SID, user.family.primaryContact, familyText);
-
-        console.log(`[tool/send-message] ✅ נשלח עבור ${user.name}: "${userMessage}"`);
-        results.push({ toolCallId: call.id, result: `ההודעה נשלחה${recipientLabel}.` });
-      } catch (sendErr) {
-        console.error('[tool/send-message] שגיאה:', sendErr.message);
-        results.push({ toolCallId: call.id, result: 'אירעה שגיאה בשליחה.' });
-      }
-    }
-
-    return res.json({ results });
-  } catch (err) {
-    console.error('[tool/send-message] שגיאה כללית:', err.message);
-    return res.status(500).json({ error: 'internal server error' });
-  }
-});
-
 // ── External Cron (Upstash QStash) — PRIMARY scheduler ─────────────────────
 // Setup: https://console.upstash.com/qstash → New Schedule
 // URL:      https://YOUR-APP.railway.app/trigger-daily
@@ -748,9 +685,3 @@ app.listen(PORT, () => {
   if (!SUPABASE_KEY) console.warn('⚠️  SUPABASE_SERVICE_KEY missing');
 });
 
-// deploy trigger Thu Sep 10 04:34:29 PM UTC 2026
-
-// Version check endpoint
-app.get('/version', (req, res) => {
-  res.json({ commit: '98af4b0', endpoints: ['/tool/send-message', '/trigger-daily', '/webhook/vapi'] });
-});
